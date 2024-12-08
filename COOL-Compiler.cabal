@@ -1,0 +1,15 @@
+cabal-version:      3.0
+name:               COOL-Compiler
+version:            0.1.0.0
+
+common warnings
+    ghc-options: -Wall
+
+executable Compiler
+    main-is:          Main.hs
+    other-modules:    Lexer, Parser, Tokens
+    build-depends:    base, array, bytestring
+    build-tool-depends: alex:alex
+    hs-source-dirs:   app
+
+
