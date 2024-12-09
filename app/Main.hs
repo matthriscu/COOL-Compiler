@@ -13,16 +13,16 @@ main = do
   filename <- getLine
   file <- BS.readFile filename
   let lexerTokens = fromRight [] $ runAlex file (modify (\s -> s{fileName = filename}) >> go)
-  let tokens = if TokenEOF `elem` lexerTokens then lexerTokens else lexerTokens ++ [TokenEOF]
+  let tokens = if WithPosition TokenEOF (0, 0) `elem` lexerTokens then lexerTokens else lexerTokens ++ [WithPosition TokenEOF (0, 0)]
   if any (isJust . fromError) tokens
     then putStrLn $ intercalate "\n" $ mapMaybe fromError tokens ++ ["Compilation halted"]
-    else print (parse tokens)
+    else putStrLn $ intercalate "\n" $ map show tokens
  where
   go = do
     output <- alexMonadScan
     if isFinalToken output then pure [output] else (output :) <$> go
-  fromError (TokenError a) = Just a
+  fromError (WithPosition (TokenError a) _) = Just a
   fromError _ = Nothing
-  isFinalToken TokenEOF = True
-  isFinalToken (TokenError str) = "EOF" `isInfixOf` str
+  isFinalToken (WithPosition TokenEOF _) = True
+  isFinalToken (WithPosition (TokenError str) _) = "EOF" `isInfixOf` str
   isFinalToken _ = False

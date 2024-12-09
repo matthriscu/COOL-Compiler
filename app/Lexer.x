@@ -78,14 +78,17 @@ alexInitUserState =
     , currentString = ""
     }
 
-alexEOF :: Alex Token
+alexEOF :: Alex (WithPosition Token)
 alexEOF = do
   code <- alexGetStartCode
   state <- get
   return $ case code of
-    0 -> TokenEOF
+    0 -> WithPosition TokenEOF (0, 0)
     comment -> makeLexicalError (startPos state) "EOF in comment" state
     string -> makeLexicalError (startPos state) "EOF in string constant" state
+
+convertPosition :: AlexPosn -> (Int, Int)
+convertPosition (AlexPn _ l c) = (l, c)
 
 get :: Alex AlexUserState
 get = Alex $ \s -> Right (s, alex_ust s)
@@ -96,24 +99,24 @@ put s' = Alex $ \s -> Right (s{alex_ust = s'}, ())
 modify :: (AlexUserState -> AlexUserState) -> Alex ()
 modify f = Alex $ \s -> Right (s{alex_ust = f (alex_ust s)}, ())
 
-enterString :: AlexAction Token
+enterString :: AlexAction (WithPosition Token)
 enterString input@(pos, _, _, _) len = modify (\s -> s{startPos = pos, currentString = ""}) >> skip input len
 
-enterComment :: AlexAction Token
+enterComment :: AlexAction (WithPosition Token)
 enterComment input@(pos, _, _, _) len = modify (\s -> s{startPos = pos, nestLevel = 1}) >> skip input len
 
-adjustNestLevel :: Int -> AlexAction Token
+adjustNestLevel :: Int -> AlexAction (WithPosition Token)
 adjustNestLevel d input len = do
   state <- get
   put state{nestLevel = nestLevel state + d}
   when (nestLevel state + d == 0) $ alexSetStartCode 0
   skip input len
 
-makeLexicalError :: AlexPosn -> String -> AlexUserState -> Token
+makeLexicalError :: AlexPosn -> String -> AlexUserState -> (WithPosition Token)
 makeLexicalError (AlexPn _ l c) message state =
-  TokenError $ show (fileName state) ++ ", line " ++ show l ++ ":" ++ show c ++ ", Lexical error: " ++ message
+  WithPosition (TokenError $ show (fileName state) ++ ", line " ++ show l ++ ":" ++ show c ++ ", Lexical error: " ++ message) (l, c)
 
-processChar :: AlexAction Token
+processChar :: AlexAction (WithPosition Token)
 processChar input@(_, prev, str, _) len
   | c == '\0' = do
       state <- get
@@ -129,7 +132,7 @@ processChar input@(_, prev, str, _) len
       alexSetStartCode 0
       if length (currentString state) > 1024
         then return $ makeLexicalError (startPos state) "String constant too long" state
-        else return $ TokenStringLiteral $ currentString state
+        else return $ WithPosition (TokenStringLiteral $ currentString state) (convertPosition (startPos state))
   | otherwise = append [c] >> skip input len
  where
   c = BS.head str
@@ -141,15 +144,15 @@ processChar input@(_, prev, str, _) len
     'f' -> "\f"
     _ -> [x]
 
-tok :: Token -> AlexAction Token
-tok ctor _ _ = return ctor
+tok :: Token -> AlexAction (WithPosition Token)
+tok ctor (pos, _, _, _) _ = return $ WithPosition ctor (convertPosition pos)
 
-tokIdentifier :: AlexAction Token
-tokIdentifier (_, _, str, _) len = return $ TokenIdentifier $ BS.unpack $ BS.take len str
+tokIdentifier :: AlexAction (WithPosition Token)
+tokIdentifier (pos, _, str, _) len = return $ WithPosition (TokenIdentifier $ BS.unpack $ BS.take len str) (convertPosition pos)
 
-tokType :: AlexAction Token
-tokType (_, _, str, _) len = return $ TokenType $ BS.unpack $ BS.take len str
+tokType :: AlexAction (WithPosition Token)
+tokType (pos, _, str, _) len = return $ WithPosition (TokenType $ BS.unpack $ BS.take len str) (convertPosition pos)
 
-tokIntLiteral :: AlexAction Token
-tokIntLiteral (_, _, str, _) len = return $ TokenIntLiteral $ read $ BS.unpack $ BS.take len str
+tokIntLiteral :: AlexAction (WithPosition Token)
+tokIntLiteral (pos, _, str, _) len = return $ WithPosition (TokenIntLiteral $ read $ BS.unpack $ BS.take len str) (convertPosition pos)
 }

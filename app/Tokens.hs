@@ -46,6 +46,12 @@ data Token
   | TokenEOF
   deriving (Show, Eq)
 
+data WithPosition a = WithPosition
+  { value :: a
+  , pos :: (Int, Int)
+  }
+  deriving (Show, Eq)
+
 newtype Program = Program [Class] deriving (Eq)
 
 data Class = Class Type (Maybe Type) [Feature] deriving (Eq)
