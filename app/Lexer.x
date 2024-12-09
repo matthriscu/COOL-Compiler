@@ -54,8 +54,8 @@ tokens :-
 <0>  [0-9]+               { tokIntLiteral }
 <0>  \"                   { enterString `andBegin` string }
 <0> "(*"                  { enterComment `andBegin` comment }
-<0> "*)"                  { \(pos, _, _, _) _ -> get >>= return . makeLexicalError pos ("Unmatched *)") }
-<0>  .                    { \(pos, _, str, _) _ -> get >>= return . makeLexicalError pos ("Invalid character: " ++ [BS.head str]) }
+<0> "*)"                  { \input@(pos, _, _, _) len -> addError pos "Unmatched *)" >> skip input len }
+<0>  .                    { \input@(pos, _, str, _) len -> addError pos ("Invalid character: " ++ [BS.head str]) >> skip input len }
 <string> [.\n]            { processChar }
 <comment> "(*"            { adjustNestLevel 1 }
 <comment> "*)"            { adjustNestLevel (-1) }
@@ -67,6 +67,7 @@ data AlexUserState = AlexUserState
   , nestLevel :: Int
   , startPos :: AlexPosn
   , currentString :: String
+  , errors :: [String]
   }
 
 alexInitUserState :: AlexUserState
@@ -76,16 +77,19 @@ alexInitUserState =
     , nestLevel = 0
     , startPos = AlexPn 0 0 0
     , currentString = ""
+    , errors = []
     }
 
 alexEOF :: Alex (WithPosition Token)
 alexEOF = do
   code <- alexGetStartCode
   state <- get
-  return $ case code of
-    0 -> WithPosition TokenEOF (0, 0)
-    comment -> makeLexicalError (startPos state) "EOF in comment" state
-    string -> makeLexicalError (startPos state) "EOF in string constant" state
+  when (code == comment) $ addError (startPos state) "EOF in comment"
+  when (code == string) $ addError (startPos state) "EOF in string constant"
+  state <- get
+  if not $ null $ errors state
+    then alexError $ unlines $ reverse $ errors state
+    else return $ WithPosition TokenEOF (0, 0)
 
 convertPosition :: AlexPosn -> (Int, Int)
 convertPosition (AlexPn _ l c) = (l, c)
@@ -112,26 +116,28 @@ adjustNestLevel d input len = do
   when (nestLevel state + d == 0) $ alexSetStartCode 0
   skip input len
 
-makeLexicalError :: AlexPosn -> String -> AlexUserState -> (WithPosition Token)
-makeLexicalError (AlexPn _ l c) message state =
-  WithPosition (TokenError $ show (fileName state) ++ ", line " ++ show l ++ ":" ++ show c ++ ", Lexical error: " ++ message) (l, c)
+addError :: AlexPosn -> String -> Alex ()
+addError (AlexPn _ l c) message =
+  modify (\s -> s{errors = (show (fileName s) ++ ", line " ++ show l ++ ":" ++ show c ++ ", Lexical error: " ++ message) : errors s})
 
 processChar :: AlexAction (WithPosition Token)
 processChar input@(_, prev, str, _) len
   | c == '\0' = do
       state <- get
-      return $ makeLexicalError (startPos state) "String contains null character" state
+      addError (startPos state) "String contains null character"
+      skip input len
   | prev == '\\' = append (handleEscape c) >> skip input len
   | c == '\\' = skip input len
   | c == '\n' = do
       state <- get
+      addError (startPos state) "Unterminated string constant"
       alexSetStartCode 0
-      return $ makeLexicalError (startPos state) "Unterminated string constant" state
+      skip input len
   | c == '\"' = do
       state <- get
       alexSetStartCode 0
       if length (currentString state) > 1024
-        then return $ makeLexicalError (startPos state) "String constant too long" state
+        then addError (startPos state) "String constant too long" >> skip input len
         else return $ WithPosition (TokenStringLiteral $ currentString state) (convertPosition (startPos state))
   | otherwise = append [c] >> skip input len
  where
