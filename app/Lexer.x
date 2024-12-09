@@ -11,54 +11,54 @@ import Tokens
 tokens :-
 <0>  $white+              ;
 <0>  "--".*               ;
-<0>  "<-"                 { tok TokenAssign }
-<0>  "class"              { tok TokenClass }
-<0>  "inherits"           { tok TokenInherits}
-<0>  "not"                { tok TokenNot }
-<0>  "if"                 { tok TokenIf }
-<0>  "then"               { tok TokenThen }
-<0>  "else"               { tok TokenElse }
-<0>  "fi"                 { tok TokenFi }
-<0>  "case"               { tok TokenCase }
-<0>  "esac"               { tok TokenEsac }
-<0>  "let"                { tok TokenLet }
-<0>  "in"                 { tok TokenIn }
-<0>  "while"              { tok TokenWhile }
-<0>  "loop"               { tok TokenLoop }
-<0>  "pool"               { tok TokenPool }
-<0>  "true"               { tok (TokenBooleanLiteral True) }
+<0>  "<-"                 { tok TokenAssign                 }
+<0>  "class"              { tok TokenClass                  }
+<0>  "inherits"           { tok TokenInherits               }
+<0>  "not"                { tok TokenNot                    }
+<0>  "if"                 { tok TokenIf                     }
+<0>  "then"               { tok TokenThen                   }
+<0>  "else"               { tok TokenElse                   }
+<0>  "fi"                 { tok TokenFi                     }
+<0>  "case"               { tok TokenCase                   }
+<0>  "esac"               { tok TokenEsac                   }
+<0>  "let"                { tok TokenLet                    }
+<0>  "in"                 { tok TokenIn                     }
+<0>  "while"              { tok TokenWhile                  }
+<0>  "loop"               { tok TokenLoop                   }
+<0>  "pool"               { tok TokenPool                   }
+<0>  "true"               { tok (TokenBooleanLiteral True)  }
 <0>  "false"              { tok (TokenBooleanLiteral False) }
-<0>  "+"                  { tok TokenPlus }
-<0>  "-"                  { tok TokenMinus }
-<0>  "*"                  { tok TokenStar }
-<0>  "/"                  { tok TokenSlash }
-<0>  "=>"                 { tok TokenCaseArrow }
-<0>  "of"                 { tok TokenOf }
-<0>  "<"                  { tok TokenLessThan }
-<0>  "<="                 { tok TokenLessThanEqual }
-<0>  "="                  { tok TokenEqual }
-<0>  "isvoid"             { tok TokenIsVoid }
-<0>  "new"                { tok TokenNew }
-<0>  "@"                  { tok TokenAt }
-<0>  "~"                  { tok TokenTilde }
-<0>  ":"                  { tok TokenColon }
-<0>  ";"                  { tok TokenSemicolon }
-<0>  "{"                  { tok TokenLeftBrace }
-<0>  "}"                  { tok TokenRightBrace }
-<0>  "("                  { tok TokenLeftParen }
-<0>  ")"                  { tok TokenRightParen }
-<0>  ","                  { tok TokenComma }
-<0>  "."                  { tok TokenDot }
-<0>  [A-Z][a-zA-Z0-9_]*   { tokType }
-<0>  [a-z][a-zA-Z0-9_]*   { tokIdentifier }
-<0>  [0-9]+               { tokIntLiteral }
-<0>  \"                   { enterString `andBegin` string }
+<0>  "+"                  { tok TokenPlus                   }
+<0>  "-"                  { tok TokenMinus                  }
+<0>  "*"                  { tok TokenStar                   }
+<0>  "/"                  { tok TokenSlash                  }
+<0>  "=>"                 { tok TokenCaseArrow              }
+<0>  "of"                 { tok TokenOf                     }
+<0>  "<"                  { tok TokenLessThan               }
+<0>  "<="                 { tok TokenLessThanEqual          }
+<0>  "="                  { tok TokenEqual                  }
+<0>  "isvoid"             { tok TokenIsVoid                 }
+<0>  "new"                { tok TokenNew                    }
+<0>  "@"                  { tok TokenAt                     }
+<0>  "~"                  { tok TokenTilde                  }
+<0>  ":"                  { tok TokenColon                  }
+<0>  ";"                  { tok TokenSemicolon              }
+<0>  "{"                  { tok TokenLeftBrace              }
+<0>  "}"                  { tok TokenRightBrace             }
+<0>  "("                  { tok TokenLeftParen              }
+<0>  ")"                  { tok TokenRightParen             }
+<0>  ","                  { tok TokenComma                  }
+<0>  "."                  { tok TokenDot                    }
+<0>  [A-Z][a-zA-Z0-9_]*   { tokType                         }
+<0>  [a-z][a-zA-Z0-9_]*   { tokIdentifier                   }
+<0>  [0-9]+               { tokIntLiteral                   }
+<0>  \"                   { enterString `andBegin` string   }
 <0> "(*"                  { enterComment `andBegin` comment }
-<0> "*)"                  { \input@(pos, _, _, _) len -> addError pos "Unmatched *)" >> skip input len }
-<0>  .                    { \input@(pos, _, str, _) len -> addError pos ("Invalid character: " ++ [BS.head str]) >> skip input len }
-<string> [.\n]            { processChar }
-<comment> "(*"            { adjustNestLevel 1 }
-<comment> "*)"            { adjustNestLevel (-1) }
+<0> "*)"                  { handleUnmatchedComment          }
+<0>  .                    { handleInvalidCharacter          }
+<string> [.\n]            { processChar                     }
+<comment> "(*"            { adjustNestLevel 1               }
+<comment> "*)"            { adjustNestLevel (-1)            }
 <comment> [.\n]           ;
 
 {
@@ -104,10 +104,14 @@ modify :: (AlexUserState -> AlexUserState) -> Alex ()
 modify f = Alex $ \s -> Right (s{alex_ust = f (alex_ust s)}, ())
 
 enterString :: AlexAction (WithPosition Token)
-enterString input@(pos, _, _, _) len = modify (\s -> s{startPos = pos, currentString = ""}) >> skip input len
+enterString input@(pos, _, _, _) len = do
+  modify (\s -> s{startPos = pos, currentString = ""})
+  skip input len
 
 enterComment :: AlexAction (WithPosition Token)
-enterComment input@(pos, _, _, _) len = modify (\s -> s{startPos = pos, nestLevel = 1}) >> skip input len
+enterComment input@(pos, _, _, _) len = do
+  modify (\s -> s{startPos = pos, nestLevel = 1})
+  skip input len
 
 adjustNestLevel :: Int -> AlexAction (WithPosition Token)
 adjustNestLevel d input len = do
@@ -116,9 +120,27 @@ adjustNestLevel d input len = do
   when (nestLevel state + d == 0) $ alexSetStartCode 0
   skip input len
 
+handleUnmatchedComment :: AlexAction (WithPosition Token)
+handleUnmatchedComment input@(pos, _, _, _) len = do
+  addError pos "Unmatched *)"
+  skip input len
+
+handleInvalidCharacter :: AlexAction (WithPosition Token)
+handleInvalidCharacter input@(pos, _, str, _) len = do
+  addError pos ("Invalid character: " ++ [BS.head str])
+  skip input len
+
 addError :: AlexPosn -> String -> Alex ()
 addError (AlexPn _ l c) message =
-  modify (\s -> s{errors = (show (fileName s) ++ ", line " ++ show l ++ ":" ++ show c ++ ", Lexical error: " ++ message) : errors s})
+  modify (\s -> s{errors = newError s : errors s})
+  where
+    newError s = show (fileName s)
+      ++ ", line "
+      ++ show l
+      ++ ":"
+      ++ show c
+      ++ ", Lexical error: "
+      ++ message
 
 processChar :: AlexAction (WithPosition Token)
 processChar input@(_, prev, str, _) len
@@ -138,7 +160,7 @@ processChar input@(_, prev, str, _) len
       alexSetStartCode 0
       if length (currentString state) > 1024
         then addError (startPos state) "String constant too long" >> skip input len
-        else return $ WithPosition (TokenStringLiteral $ currentString state) (convertPosition (startPos state))
+        else return $ WithPosition (TokenStringLiteral $ currentString state) (convertPosition $ startPos state)
   | otherwise = append [c] >> skip input len
  where
   c = BS.head str
@@ -154,11 +176,14 @@ tok :: Token -> AlexAction (WithPosition Token)
 tok ctor (pos, _, _, _) _ = return $ WithPosition ctor (convertPosition pos)
 
 tokIdentifier :: AlexAction (WithPosition Token)
-tokIdentifier (pos, _, str, _) len = return $ WithPosition (TokenIdentifier $ BS.unpack $ BS.take len str) (convertPosition pos)
+tokIdentifier (pos, _, str, _) len =
+  return $ WithPosition (TokenIdentifier $ BS.unpack $ BS.take len str) (convertPosition pos)
 
 tokType :: AlexAction (WithPosition Token)
-tokType (pos, _, str, _) len = return $ WithPosition (TokenType $ BS.unpack $ BS.take len str) (convertPosition pos)
+tokType (pos, _, str, _) len =
+  return $ WithPosition (TokenType $ BS.unpack $ BS.take len str) (convertPosition pos)
 
 tokIntLiteral :: AlexAction (WithPosition Token)
-tokIntLiteral (pos, _, str, _) len = return $ WithPosition (TokenIntLiteral $ read $ BS.unpack $ BS.take len str) (convertPosition pos)
+tokIntLiteral (pos, _, str, _) len =
+  return $ WithPosition (TokenIntLiteral $ read $ BS.unpack $ BS.take len str) (convertPosition pos)
 }
